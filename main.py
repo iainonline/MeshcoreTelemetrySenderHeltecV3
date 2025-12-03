@@ -119,27 +119,70 @@ async def handle_event(event):
     """Handle events from the Meshcore device."""
     event_type = event.type
     event_payload = event.payload
+    event_attrs = event.attributes
     
-    # Log all events to file
+    # Log all events to file with full details
     logger.info(f"Event received: {event_type.name}")
-    logger.debug(f"  Payload: {event_payload}")
-    logger.debug(f"  Attributes: {event.attributes}")
+    logger.info(f"  Payload: {event_payload}")
+    logger.info(f"  Attributes: {event_attrs}")
     
-    # Display important events to console
-    important_events = [
-        EventType.DEVICE_INFO,
-        EventType.BATTERY,
-        EventType.TELEMETRY_RESPONSE,
-        EventType.CONTACT_MSG_RECV,
-        EventType.CHANNEL_MSG_RECV,
-        EventType.NEW_CONTACT,
-    ]
+    # Display all events to console with verbose formatting
+    print(f"\n{'='*70}")
+    print(f"🔔 EVENT: {event_type.name}")
+    print(f"{'='*70}")
+    print(f"⏰ Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     
-    if event_type in important_events or event_type.name in ['CONNECTED', 'DISCONNECTED']:
-        print(f"\n{'='*60}")
-        print(f"EVENT: {event_type.name}")
-        print(f"PAYLOAD: {event_payload}")
-        print(f"{'='*60}\n")
+    # Display payload with proper formatting
+    if event_payload:
+        print(f"\n📦 PAYLOAD:")
+        if isinstance(event_payload, dict):
+            for key, value in event_payload.items():
+                print(f"   • {key}: {value}")
+        else:
+            print(f"   {event_payload}")
+    
+    # Display attributes if present
+    if event_attrs:
+        print(f"\n🏷️  ATTRIBUTES:")
+        for key, value in event_attrs.items():
+            print(f"   • {key}: {value}")
+    
+    # Add specific handling for different event types
+    if event_type == EventType.BATTERY:
+        print(f"\n🔋 Battery Status:")
+        if 'level' in event_payload:
+            print(f"   Level: {event_payload['level']}%")
+        if 'voltage' in event_payload:
+            print(f"   Voltage: {event_payload['voltage']}V")
+    
+    elif event_type == EventType.DEVICE_INFO:
+        print(f"\n📱 Device Information:")
+        for key in ['device_id', 'node_id', 'hardware', 'firmware']:
+            if key in event_payload:
+                print(f"   {key.replace('_', ' ').title()}: {event_payload[key]}")
+    
+    elif event_type == EventType.TELEMETRY_RESPONSE:
+        print(f"\n📊 Telemetry Data:")
+        for key, value in event_payload.items():
+            print(f"   {key}: {value}")
+    
+    elif event_type in [EventType.CONTACT_MSG_RECV, EventType.CHANNEL_MSG_RECV]:
+        print(f"\n💬 Message Received:")
+        if 'from' in event_payload:
+            print(f"   From: {event_payload['from']}")
+        if 'to' in event_payload:
+            print(f"   To: {event_payload['to']}")
+        if 'text' in event_payload:
+            print(f"   Text: {event_payload['text']}")
+        if 'message' in event_payload:
+            print(f"   Message: {event_payload['message']}")
+    
+    elif event_type == EventType.NEW_CONTACT:
+        print(f"\n👤 New Contact Discovered:")
+        if 'node_id' in event_payload:
+            print(f"   Node ID: {event_payload['node_id']}")
+    
+    print(f"{'='*70}\n")
 
 
 async def main():
@@ -300,14 +343,17 @@ async def main():
                     logger.debug("Reading BME280 sensor...")
                     sensor_data = read_bme280()
                     if sensor_data:
-                        print(f"\n{'='*60}")
-                        print("BME280 SENSOR READING")
-                        print(f"  Temperature: {sensor_data['temperature_c']}°C ({sensor_data['temperature_f']}°F)")
-                        print(f"  Humidity: {sensor_data['humidity']}%")
-                        print(f"  Pressure: {sensor_data['pressure_hpa']} hPa")
-                        print(f"  Altitude: {sensor_data['altitude_m']} m")
-                        print(f"{'='*60}\n")
-                        logger.info(f"BME280: {sensor_data}")
+                        print(f"\n{'='*70}")
+                        print(f"🌡️  BME280 ENVIRONMENTAL SENSOR READING")
+                        print(f"{'='*70}")
+                        print(f"⏰ Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+                        print(f"\n📊 Measurements:")
+                        print(f"   🌡️  Temperature: {sensor_data['temperature_c']}°C ({sensor_data['temperature_f']}°F)")
+                        print(f"   💧 Humidity: {sensor_data['humidity']}%")
+                        print(f"   🔽 Pressure: {sensor_data['pressure_hpa']} hPa")
+                        print(f"   ⛰️  Altitude: {sensor_data['altitude_m']} m")
+                        print(f"{'='*70}\n")
+                        logger.info(f"BME280 Reading: Temp={sensor_data['temperature_c']}°C, Humidity={sensor_data['humidity']}%, Pressure={sensor_data['pressure_hpa']}hPa")
                     last_sensor_read = current_time
                 
                 await asyncio.sleep(1)
