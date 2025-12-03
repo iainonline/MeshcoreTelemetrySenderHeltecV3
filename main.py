@@ -107,7 +107,7 @@ async def main():
     # USB serial port (adjust if your device is on a different port)
     serial_port = "/dev/ttyUSB0"
     baudrate = 115200
-    connection_timeout = 10  # seconds
+    connection_timeout = 30  # seconds - increased for slower devices
     
     logger.info("="*60)
     logger.info("Meshcore Telemetry Reader Starting")
@@ -137,6 +137,7 @@ async def main():
         meshcore = MeshCore(
             connection_manager,
             debug=True,  # Enable debug mode
+            auto_reconnect=True,  # Enable auto reconnect
             default_timeout=connection_timeout
         )
         logger.info("MeshCore client initialized")
@@ -165,19 +166,25 @@ async def main():
         
         print("Subscribed to events. Connecting to device...\n")
         
-        # Connect to device with timeout
+        # Connect to device - don't use strict timeout as SELF_INFO may be delayed
         logger.info("Initiating connection to device...")
         try:
-            await asyncio.wait_for(
-                meshcore.connect(),
-                timeout=connection_timeout
-            )
-            logger.info("✓ Successfully connected to Meshcore device!")
-            print("✓ Connected!\n")
-        except asyncio.TimeoutError:
-            logger.error(f"Connection timeout after {connection_timeout} seconds")
-            print(f"\n✗ Connection timeout after {connection_timeout} seconds")
+            # Connect without strict timeout - let it establish connection
+            await meshcore.connect()
+            logger.info("✓ Connection initiated to Meshcore device!")
+            print("✓ Connection initiated!\n")
+        except Exception as e:
+            logger.error(f"Connection failed: {e}", exc_info=True)
+            print(f"\n✗ Connection failed: {e}")
             return
+        
+        # Start auto message fetching to retrieve queued messages
+        logger.info("Starting auto message fetching...")
+        try:
+            await meshcore.start_auto_message_fetching()
+            logger.info("Auto message fetching started")
+        except Exception as e:
+            logger.warning(f"Could not start auto message fetching: {e}")
         
         # Access device commands through commands module
         logger.debug("Setting up device commands")
@@ -189,34 +196,37 @@ async def main():
         logger.debug("Device commands configured")
         
         # Give device a moment to stabilize
-        logger.debug("Waiting 2 seconds for device to stabilize...")
-        await asyncio.sleep(2)
+        logger.debug("Waiting 1 second for device to stabilize...")
+        await asyncio.sleep(1)
         
         # Request device information
         logger.info("Sending device query request...")
         try:
             result = await asyncio.wait_for(
                 device_commands.send_device_query(),
-                timeout=5
+                timeout=10
             )
             logger.info(f"Device query result: {result}")
         except asyncio.TimeoutError:
-            logger.warning("Device query request timed out")
+            logger.warning("Device query request timed out - device may respond later")
         except Exception as e:
-            logger.error(f"Device query failed: {e}", exc_info=True)
+            logger.warning(f"Device query failed: {e}")
+        
+        # Wait a bit before next command
+        await asyncio.sleep(1)
         
         # Request battery status
         logger.info("Requesting battery status...")
         try:
             result = await asyncio.wait_for(
                 device_commands.get_bat(),
-                timeout=5
+                timeout=10
             )
             logger.info(f"Battery status result: {result}")
         except asyncio.TimeoutError:
-            logger.warning("Battery request timed out")
+            logger.warning("Battery request timed out - device may respond later")
         except Exception as e:
-            logger.error(f"Battery request failed: {e}", exc_info=True)
+            logger.warning(f"Battery request failed: {e}")
         
         # Keep the connection alive and listen for events
         logger.info("Entering main event loop")
@@ -237,7 +247,12 @@ async def main():
                 
                 # Log periodic status
                 if (current_time - last_status_log) >= status_interval:
-                    logger.debug(f"Status: Running (loops: {loop_count}, connected: {meshcore.is_connected()})")
+                    connected_status = getattr(meshcore, 'is_connected', None)
+                    if callable(connected_status):
+                        is_conn = connected_status()
+                    else:
+                        is_conn = connected_status if connected_status is not None else "unknown"
+                    logger.debug(f"Status: Running (loops: {loop_count}, connected: {is_conn})")
                     last_status_log = current_time
                 
                 # Read BME280 sensor periodically
@@ -265,6 +280,14 @@ async def main():
         if meshcore:
             logger.info("Disconnecting from device...")
             try:
+                # Stop auto message fetching first
+                try:
+                    await asyncio.wait_for(meshcore.stop_auto_message_fetching(), timeout=3)
+                    logger.debug("Auto message fetching stopped")
+                except Exception as e:
+                    logger.debug(f"Could not stop auto fetch: {e}")
+                
+                # Then disconnect
                 await asyncio.wait_for(meshcore.disconnect(), timeout=5)
                 logger.info("✓ Disconnected successfully")
             except Exception as e:
