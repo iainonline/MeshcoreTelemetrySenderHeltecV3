@@ -33,27 +33,67 @@ logger.info(f"Logging to: {log_file}")
 bme280_sensor = None
 try:
     import board
+    import busio
     import adafruit_bme280.advanced as adafruit_bme280
     
+    logger.info("Initializing BME280 sensor...")
+    logger.info(f"Board detected: {board.board_id if hasattr(board, 'board_id') else 'Unknown'}")
+    
     # Create I2C interface
-    i2c = board.I2C()
+    try:
+        # First try the default I2C
+        i2c = board.I2C()
+        logger.debug("I2C interface created using board.I2C()")
+    except Exception as e:
+        # Fallback: create I2C explicitly
+        logger.debug(f"board.I2C() failed: {e}, trying explicit busio.I2C()")
+        i2c = busio.I2C(board.SCL, board.SDA)
+        logger.debug(f"I2C interface created on SCL={board.SCL}, SDA={board.SDA}")
+    
+    # Scan for I2C devices
+    logger.debug("Scanning I2C bus for devices...")
+    while not i2c.try_lock():
+        pass
+    try:
+        devices = i2c.scan()
+        if devices:
+            logger.info(f"Found {len(devices)} I2C device(s): {[hex(d) for d in devices]}")
+        else:
+            logger.warning("No I2C devices detected on the bus!")
+            logger.warning("Check BME280 wiring:")
+            logger.warning("  VCC → 3.3V, GND → Ground, SDA → GPIO2 (Pin 3), SCL → GPIO3 (Pin 5)")
+    finally:
+        i2c.unlock()
     
     # Try both common I2C addresses (0x76 and 0x77)
     for address in [0x76, 0x77]:
         try:
+            logger.debug(f"Attempting to initialize BME280 at address 0x{address:02x}")
             bme280_sensor = adafruit_bme280.Adafruit_BME280_I2C(i2c, address=address)
             bme280_sensor.sea_level_pressure = 1013.25  # Standard sea level pressure
-            logger.info(f"BME280 sensor initialized successfully at address 0x{address:02x}")
+            logger.info(f"✓ BME280 sensor initialized successfully at address 0x{address:02x}")
+            
+            # Test read
+            test_temp = bme280_sensor.temperature
+            logger.info(f"  Temperature reading: {test_temp:.2f}°C")
             break
-        except Exception:
+        except ValueError as e:
+            logger.debug(f"BME280 not at 0x{address:02x}: {e}")
+            continue
+        except Exception as e:
+            logger.debug(f"Error at 0x{address:02x}: {type(e).__name__}: {e}")
             continue
     
     if bme280_sensor is None:
-        raise Exception("BME280 not found at addresses 0x76 or 0x77")
+        raise Exception("BME280 not found at addresses 0x76 or 0x77. Check wiring and run: python check_i2c_wiring.py")
         
+except ImportError as e:
+    logger.error(f"BME280 libraries not installed: {e}")
+    logger.error("Run: pip install adafruit-circuitpython-bme280 adafruit-blinka")
 except Exception as e:
     logger.warning(f"BME280 sensor not available: {e}")
     logger.warning("Continuing without BME280 sensor...")
+    logger.warning("Run 'python check_i2c_wiring.py' for detailed diagnostics")
 
 
 def read_bme280():
