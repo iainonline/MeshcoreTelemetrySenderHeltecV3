@@ -1,0 +1,4 @@
+meshcore>=0.1.0
+pyserial>=3.5
+adafruit-circuitpython-bme280>=2.6.0
+adafruit-blinka>=8.0.0
